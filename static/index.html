@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎬 CineMatch AI</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2333;
+            --bg-input: #21262d;
+            --accent: #e6b422;
+            --accent-hover: #f0c850;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --border: #30363d;
+            --success: #3fb950;
+            --error: #f85149;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ─────────────────────────────── */
+
+        header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(12px);
+        }
+
+        .logo {
+            font-size: 28px;
+        }
+
+        header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header .subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            margin-left: 8px;
+        }
+
+        .status-dot.online { background: var(--success); }
+        .status-dot.error { background: var(--error); }
+
+        /* ── Chat area ──────────────────────────── */
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            max-width: 900px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .welcome {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .welcome h2 {
+            font-size: 28px;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .welcome p {
+            font-size: 15px;
+            line-height: 1.6;
+            max-width: 500px;
+            margin: 0 auto 24px;
+        }
+
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .suggestion {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .suggestion:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        /* ── Messages ───────────────────────────── */
+
+        .message {
+            display: flex;
+            gap: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #1a3a5c;
+        }
+
+        .message.assistant .message-avatar {
+            background: linear-gradient(135deg, #2d1b3d, #3d1b2d);
+        }
+
+        .message-content {
+            max-width: 75%;
+            padding: 14px 18px;
+            border-radius: var(--radius);
+            line-height: 1.65;
+            font-size: 14.5px;
+        }
+
+        .message.user .message-content {
+            background: #1a3a5c;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* ── Movie cards ────────────────────────── */
+
+        .movie-cards {
+            display: flex;
+            gap: 16px;
+            overflow-x: auto;
+            padding: 16px 0;
+            margin: 12px 0;
+        }
+
+        .movie-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            min-width: 220px;
+            max-width: 220px;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+            flex-shrink: 0;
+        }
+
+        .movie-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+        }
+
+        .movie-card img {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            background: var(--bg-input);
+        }
+
+        .movie-card .card-body {
+            padding: 12px;
+        }
+
+        .movie-card .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .movie-card .card-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .movie-card .card-score {
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .movie-card .card-reason {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            margin-top: 8px;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* ── Status indicator ───────────────────── */
+
+        .thinking {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 18px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .thinking .dots span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 1.4s ease-in-out infinite;
+            margin: 0 2px;
+        }
+
+        .thinking .dots span:nth-child(2) { animation-delay: 0.2s; }
+        .thinking .dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes pulse {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1.2); }
+        }
+
+        /* ── Input area ─────────────────────────── */
+
+        .input-area {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 16px 24px;
+            position: sticky;
+            bottom: 0;
+        }
+
+        .input-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-wrapper textarea {
+            flex: 1;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            color: var(--text-primary);
+            font-size: 14.5px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            max-height: 120px;
+            min-height: 48px;
+            line-height: 1.4;
+            transition: border-color 0.2s;
+        }
+
+        .input-wrapper textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .input-wrapper textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        .send-btn {
+            background: var(--accent);
+            border: none;
+            border-radius: var(--radius);
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .send-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--bg-primary);
+        }
+
+        /* ── Scrollbar ──────────────────────────── */
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        /* ── Responsive ─────────────────────────── */
+
+        @media (max-width: 640px) {
+            .message-content { max-width: 88%; }
+            .movie-card { min-width: 180px; max-width: 180px; }
+            .movie-card img { height: 240px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <span class="logo">🎬</span>
+        <h1>CineMatch AI</h1>
+        <span class="subtitle">Motor de Recomendación Cinematográfica</span>
+        <span class="status-dot" id="statusDot" title="Checking…"></span>
+    </header>
+
+    <div class="chat-container" id="chat">
+        <div class="welcome" id="welcome">
+            <h2>¿Qué te apetece ver hoy?</h2>
+            <p>Cuéntame qué tipo de película buscas usando lenguaje natural. Puedo entender géneros, emociones, épocas, países y mucho más.</p>
+            <div class="suggestions">
+                <span class="suggestion" onclick="useSuggestion(this)">Algo de atracos con humor y en Europa</span>
+                <span class="suggestion" onclick="useSuggestion(this)">Una peli de ciencia ficción que haga pensar</span>
+                <span class="suggestion" onclick="useSuggestion(this)">Drama coreano reciente, algo emotivo</span>
+                <span class="suggestion" onclick="useSuggestion(this)">Terror clásico de los 80, slasher</span>
+                <span class="suggestion" onclick="useSuggestion(this)">Animación japonesa para adultos</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-wrapper">
+            <textarea
+                id="queryInput"
+                placeholder="Describe la película que te apetece ver…"
+                rows="1"
+                autofocus
+            ></textarea>
+            <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const chat = document.getElementById('chat');
+        const input = document.getElementById('queryInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const statusDot = document.getElementById('statusDot');
+        const welcome = document.getElementById('welcome');
+
+        let sessionId = null;
+        let isLoading = false;
+
+        // Auto-resize textarea
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+
+        // Enter to send (Shift+Enter for newline)
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function useSuggestion(el) {
+            input.value = el.textContent;
+            input.focus();
+            sendMessage();
+        }
+
+        // Health check
+        async function checkHealth() {
+            try {
+                const res = await fetch('/api/health');
+                const data = await res.json();
+                statusDot.className = 'status-dot ' + (data.status === 'ok' ? 'online' : 'error');
+                statusDot.title = data.status === 'ok' ? 'Conectado' : 'Degradado';
+            } catch {
+                statusDot.className = 'status-dot error';
+                statusDot.title = 'Sin conexión';
+            }
+        }
+        checkHealth();
+
+        function addMessage(role, content) {
+            if (welcome) welcome.style.display = 'none';
+
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = role === 'user' ? '👤' : '🎬';
+
+            const body = document.createElement('div');
+            body.className = 'message-content';
+            body.innerHTML = content;
+
+            div.appendChild(avatar);
+            div.appendChild(body);
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+
+            return body;
+        }
+
+        function addThinking() {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.id = 'thinking';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = '🎬';
+
+            const body = document.createElement('div');
+            body.className = 'thinking';
+            body.innerHTML = '<div class="dots"><span></span><span></span><span></span></div><span id="thinkingText">Analizando tu petición…</span>';
+
+            div.appendChild(avatar);
+            div.appendChild(body);
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function removeThinking() {
+            const el = document.getElementById('thinking');
+            if (el) el.remove();
+        }
+
+        function updateThinking(text) {
+            const el = document.getElementById('thinkingText');
+            if (el) el.textContent = text;
+        }
+
+        const phaseLabels = {
+            extracting: 'Entendiendo tu petición…',
+            searching: 'Buscando en la base de datos…',
+            enriching: 'Recopilando información detallada…',
+            ranking: 'Evaluando las mejores opciones…',
+            narrating: 'Preparando la respuesta…',
+        };
+
+        function renderMovieCards(recommendations) {
+            if (!recommendations || !recommendations.length) return '';
+
+            let html = '<div class="movie-cards">';
+            for (const rec of recommendations) {
+                const imgSrc = rec.poster_url || '';
+                const imgTag = imgSrc
+                    ? `<img src="${imgSrc}" alt="${rec.title}" loading="lazy">`
+                    : `<img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='300'%3E%3Crect fill='%2321262d' width='220' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%236e7681' text-anchor='middle' font-size='40'%3E🎬%3C/text%3E%3C/svg%3E" alt="${rec.title}">`;
+
+                html += `
+                    <div class="movie-card">
+                        ${imgTag}
+                        <div class="card-body">
+                            <div class="card-title" title="${rec.title}">${rec.title}</div>
+                            <div class="card-meta">
+                                <span>${rec.year}</span>
+                                <span class="card-score">⭐ ${rec.score}/10</span>
+                            </div>
+                            ${rec.reason ? `<div class="card-reason">${rec.reason}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            return html;
+        }
+
+        async function sendMessage() {
+            const query = input.value.trim();
+            if (!query || isLoading) return;
+
+            isLoading = true;
+            sendBtn.disabled = true;
+            input.value = '';
+            input.style.height = 'auto';
+
+            addMessage('user', escapeHtml(query));
+            addThinking();
+
+            try {
+                // Use streaming endpoint
+                const res = await fetch('/api/recommend/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query,
+                        session_id: sessionId,
+                        max_results: 3,
+                        language: 'es',
+                    }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ detail: 'Error desconocido' }));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+
+                removeThinking();
+
+                let narrativeEl = null;
+                let cardsHtml = '';
+                let narrativeText = '';
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            var currentEvent = line.slice(7).trim();
+                        }
+                        if (!line.startsWith('data: ')) continue;
+                        const data = line.slice(6);
+
+                        try {
+                            if (currentEvent === 'status') {
+                                const s = JSON.parse(data);
+                                updateThinking(phaseLabels[s.phase] || s.phase);
+                            } else if (currentEvent === 'recommendations') {
+                                const recs = JSON.parse(data);
+                                cardsHtml = renderMovieCards(recs);
+                            } else if (currentEvent === 'token') {
+                                if (!narrativeEl) {
+                                    narrativeEl = addMessage('assistant', cardsHtml + '<div class="narrative"></div>');
+                                }
+                                narrativeText += data;
+                                const narrativeDiv = narrativeEl.querySelector('.narrative');
+                                if (narrativeDiv) {
+                                    narrativeDiv.innerHTML = formatMarkdown(narrativeText);
+                                }
+                                chat.scrollTop = chat.scrollHeight;
+                            } else if (currentEvent === 'done') {
+                                const d = JSON.parse(data);
+                                if (d.session_id) sessionId = d.session_id;
+                                if (d.narrative && !narrativeEl) {
+                                    addMessage('assistant', d.narrative);
+                                }
+                            }
+                        } catch (e) {
+                            // partial data, ignore
+                        }
+                    }
+                }
+
+                // If no streaming tokens arrived, fall back to non-streaming
+                if (!narrativeEl && !narrativeText) {
+                    const fallbackRes = await fetch('/api/recommend', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, session_id: sessionId, max_results: 3, language: 'es' }),
+                    });
+                    const fallbackData = await fallbackRes.json();
+                    sessionId = fallbackData.session_id;
+                    const cards = renderMovieCards(fallbackData.recommendations);
+                    addMessage('assistant', cards + formatMarkdown(fallbackData.narrative));
+                }
+
+            } catch (err) {
+                removeThinking();
+                addMessage('assistant', `<span style="color: var(--error)">❌ Error: ${escapeHtml(err.message)}</span>`);
+            } finally {
+                isLoading = false;
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatMarkdown(text) {
+            return text
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/«(.*?)»/g, '<strong>«$1»</strong>')
+                .replace(/\n/g, '<br>');
+        }
+    </script>
+</body>
+</html>

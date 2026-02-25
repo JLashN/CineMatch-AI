@@ -1,0 +1,9 @@
+{
+  "name": "CineMatch AI",
+  "short_name": "CineMatch",
+  "description": "Motor de Recomendación Cinematográfica con IA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#f59e0b"
+}

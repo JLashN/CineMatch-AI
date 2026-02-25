@@ -1,0 +1,194 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #06080f;
+  --surface: #0d1117;
+  --card: #161b22;
+  --border: #21262d;
+  --accent: #f59e0b;
+  --accent-2: #a78bfa;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Glass morphism ─────────────────────────────────────── */
+
+@layer utilities {
+  .glass-panel {
+    background: rgba(13, 17, 23, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .glass-card {
+    background: rgba(22, 27, 34, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 1rem;
+  }
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(139, 148, 158, 0.2);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 148, 158, 0.4);
+}
+
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+
+/* ── Narrative markdown ─────────────────────────────────── */
+
+.narrative-text p {
+  margin-bottom: 1rem;
+  line-height: 1.8;
+  font-size: 0.9rem;
+}
+
+.narrative-text strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.narrative-text em {
+  color: var(--accent-2);
+  font-style: italic;
+}
+
+.narrative-text h1, .narrative-text h2, .narrative-text h3 {
+  color: white;
+  margin-top: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ── D3 tooltip ─────────────────────────────────────────── */
+
+.graph-tooltip {
+  position: absolute;
+  padding: 10px 14px;
+  background: rgba(22, 27, 34, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 100;
+  max-width: 280px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+}
+
+/* ── Typing cursor ──────────────────────────────────────── */
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typing-cursor::after {
+  content: '▊';
+  animation: blink 1s step-end infinite;
+  color: var(--accent);
+  margin-left: 2px;
+  font-size: 0.85em;
+}
+
+/* ── Phase indicator ────────────────────────────────────── */
+
+.phase-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: phase-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes phase-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.5); }
+}
+
+/* ── Gradient backgrounds ───────────────────────────────── */
+
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(167, 139, 250, 0.3), rgba(236, 72, 153, 0.3));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* ── Movie card hover shine ─────────────────────────────── */
+
+.movie-card-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.movie-card-shine::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    to bottom right,
+    transparent 40%,
+    rgba(245, 158, 11, 0.03) 45%,
+    rgba(245, 158, 11, 0.06) 50%,
+    rgba(245, 158, 11, 0.03) 55%,
+    transparent 60%
+  );
+  transform: rotate(45deg) translateY(100%);
+  transition: transform 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+  pointer-events: none;
+}
+
+.movie-card-shine:hover::after {
+  transform: rotate(45deg) translateY(-100%);
+}
+
+/* ── Skeleton loading ───────────────────────────────────── */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--card) 25%, rgba(255,255,255,0.05) 50%, var(--card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+  border-radius: 8px;
+}
