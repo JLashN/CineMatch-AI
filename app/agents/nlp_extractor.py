@@ -1,8 +1,13 @@
 """
-CineMatch AI — NLP Extraction Agent (Module 1 / T-100 – T-103)
+CineMatch AI — NLP Extraction Agent (Module 1)
+
+Design patterns:
+  - Strategy: extraction via LLM with retry fallback
+  - Mapper: genre/keyword name → TMDB ID resolution
+  - Builder: constructs ExtractedEntities step by step
 
 Takes free-text from the user and produces structured ExtractedEntities
-via the Qwen3 LLM.
+via the Qwen3 LLM through LangChain.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from app.models import ExtractedEntities
 
 logger = logging.getLogger(__name__)
 
-# ── System prompt for entity extraction (T-100) ──────────
+# ── System prompt for entity extraction ───────────────────
 
 _SYSTEM_PROMPT = """\
 Eres un asistente experto en cine. Tu ÚNICA tarea es analizar la petición del usuario y extraer entidades relevantes para buscar películas.
@@ -48,9 +53,8 @@ Reglas:
 Responde SOLO con el JSON.
 """
 
-# ── Genre name → ID mapping helpers ───────────────────────
+# ── Genre Mapper (Mapper pattern) ─────────────────────────
 
-# Common Spanish→English genre mappings (TMDB uses English internally)
 _GENRE_NAME_MAP: Dict[str, List[str]] = {
     "acción": ["Action"],
     "aventura": ["Adventure"],
@@ -80,9 +84,7 @@ _GENRE_NAME_MAP: Dict[str, List[str]] = {
 async def _resolve_genre_ids(genre_names: List[str]) -> List[int]:
     """Map genre names (Spanish or English) to TMDB genre IDs."""
     genre_map = await get_genre_list("es-ES")
-    # Inverted: name.lower() → id
     inv = {v.lower(): k for k, v in genre_map.items()}
-    # Also add English names
     genre_map_en = await get_genre_list("en-US")
     inv_en = {v.lower(): k for k, v in genre_map_en.items()}
     inv.update(inv_en)
@@ -93,7 +95,6 @@ async def _resolve_genre_ids(genre_names: List[str]) -> List[int]:
         if low in inv:
             ids.append(inv[low])
         else:
-            # Try Spanish→English lookup
             for en_name in _GENRE_NAME_MAP.get(low, []):
                 if en_name.lower() in inv:
                     ids.append(inv[en_name.lower()])
@@ -104,22 +105,20 @@ async def _resolve_genre_ids(genre_names: List[str]) -> List[int]:
 async def _resolve_keyword_ids(keywords: List[str]) -> List[int]:
     """Resolve text keywords to TMDB keyword IDs via search."""
     ids: List[int] = []
-    for kw in keywords[:5]:  # limit to avoid excessive calls
+    for kw in keywords[:5]:
         results = await search_keyword(kw)
         if results:
-            # Take first exact or closest match
             ids.append(results[0]["id"])
     return ids
 
 
-# ── Public interface ──────────────────────────────────────
+# ── Extraction with retry (Strategy pattern) ─────────────
 
 
 async def extract_entities(user_query: str, *, retry: int = 0) -> ExtractedEntities:
     """
     Send the user query to the LLM and return structured entities.
-
-    Retries up to 2 times with temperature=0.0 on JSON parse failure.
+    Uses retry strategy: up to 3 attempts, lowering temperature on failure.
     """
     temperature = 0.1 if retry == 0 else 0.0
     messages = [
@@ -134,12 +133,12 @@ async def extract_entities(user_query: str, *, retry: int = 0) -> ExtractedEntit
         top_p=0.9,
     )
 
-    # Strip markdown fences if model wraps in ```json ... ```
+    # Strip markdown fences
     cleaned = raw.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
 
-    # Try to find JSON object in the response
+    # Find JSON object
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if match:
         cleaned = match.group(0)
@@ -151,10 +150,9 @@ async def extract_entities(user_query: str, *, retry: int = 0) -> ExtractedEntit
             logger.warning("LLM returned invalid JSON (attempt %d), retrying…", retry + 1)
             return await extract_entities(user_query, retry=retry + 1)
         logger.error("LLM failed to produce valid JSON after 3 attempts. Raw: %s", raw[:500])
-        # Return empty entities so pipeline can continue gracefully
         return ExtractedEntities()
 
-    # Build base entities from LLM output
+    # Build entities (Builder pattern)
     entities = ExtractedEntities(
         genres=data.get("genres", []),
         keywords=data.get("keywords", []),
@@ -165,7 +163,7 @@ async def extract_entities(user_query: str, *, retry: int = 0) -> ExtractedEntit
         exclude=data.get("exclude", []),
     )
 
-    # Resolve IDs via TMDB (T-103)
+    # Resolve IDs via TMDB
     entities.genre_ids = await _resolve_genre_ids(entities.genres)
     entities.keyword_ids = await _resolve_keyword_ids(entities.keywords)
 

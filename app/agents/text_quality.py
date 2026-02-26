@@ -1,6 +1,11 @@
 """
 CineMatch AI — Text Quality Agent
 
+Design patterns:
+  - Strategy: algorithmic fix (fast) → LLM rewrite (fallback)
+  - Guard Clause: _is_text_garbled() acts as a guard before processing
+  - Chain of Responsibility: heuristic check → regex fix → LLM rewrite
+
 Uses a secondary LLM call to fix garbled/concatenated text output.
 Acts as a post-processing safety net when the primary narrative
 comes out with missing spaces or broken words.

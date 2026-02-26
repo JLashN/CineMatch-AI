@@ -9,6 +9,18 @@ export interface RecommendationItem {
   reason: string;
   genres: string[];
   keywords: string[];
+  // Extended enrichment
+  trailer_url?: string | null;
+  trailer_embed_url?: string | null;
+  trailer_thumbnail?: string | null;
+  imdb_rating?: number | null;
+  rotten_tomatoes?: number | null;
+  metacritic?: number | null;
+  awards?: string | null;
+  director?: string | null;
+  actors?: string | null;
+  trivia?: string[];
+  wikipedia_url?: string | null;
 }
 
 export interface RecommendResponse {
@@ -108,4 +120,21 @@ export type SSEPhase = 'extracting' | 'searching' | 'enriching' | 'ranking' | 'n
 
 export interface SSEStatusEvent {
   phase: SSEPhase;
+}
+
+// ── Watchlist Types ──────────────────────────────────────
+
+export interface WatchlistResponse {
+  session_id: string;
+  movies: RecommendationItem[];
+}
+
+// ── Export Types ──────────────────────────────────────────
+
+export interface ExportResponse {
+  format: 'json' | 'markdown';
+  content?: string;
+  session_id?: string;
+  turns?: { role: string; content: string }[];
+  recommendations?: RecommendationItem[];
 }

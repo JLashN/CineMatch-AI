@@ -1,7 +1,9 @@
 """
 CineMatch AI — Application Settings
 
-Loads configuration from environment variables / .env file.
+Design patterns:
+  - Singleton: single Settings instance shared everywhere
+  - Configuration Object: centralizes all env-based config
 """
 
 from __future__ import annotations
@@ -33,6 +35,10 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "info"
+
+    # ── External APIs (optional, free tiers) ──────────────
+    omdb_api_key: Optional[str] = None       # https://www.omdbapi.com/apikey.aspx
+    youtube_api_key: Optional[str] = None    # https://console.cloud.google.com/apis
 
     # ── Redis (optional) ──────────────────────────────────
     redis_url: Optional[str] = None

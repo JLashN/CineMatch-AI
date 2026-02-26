@@ -145,3 +145,6 @@ vite.config.ts.timestamp-*
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+
+
+CLAUDE.md

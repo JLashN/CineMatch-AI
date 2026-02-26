@@ -1,11 +1,18 @@
 """
-CineMatch AI — FastAPI Application (Module 5)
+CineMatch AI — FastAPI Application
 
-Main API server with REST endpoints and SSE streaming.
+Main API server with REST endpoints and real SSE streaming.
+
+Design patterns:
+  - Facade: main.py acts as the facade for the entire pipeline
+  - Observer: SSE events push to the frontend
+  - Chain of Responsibility: pipeline phases execute sequentially
+  - Strategy: streaming vs non-streaming narrative generation
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -35,7 +42,7 @@ from app.sessions import (
     get_session,
     save_turn,
 )
-from app.text_processor import clean_narrative, clean_stream_chunk
+from app.text_processor import clean_narrative
 from app.agents.text_quality import fix_text_quality
 from app.agents.profile_recommender import build_narrative_context
 from app.agents.sentiment import analyze_sentiment
@@ -56,6 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("🎬 CineMatch AI starting up…")
     logger.info("   vLLM: %s  model: %s", settings.vllm_base_url, settings.vllm_model)
     logger.info("   TMDB: %s", settings.tmdb_base_url)
+    logger.info("   Streaming: LangChain real token streaming enabled")
 
     # Pre-cache genre list
     try:
@@ -69,14 +77,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("🎬 CineMatch AI shutting down…")
     await clients.close_client()
     await tmdb.close_client()
+    # Close new API clients
+    from app.clients import omdb, youtube, wikipedia
+    await omdb.close_client()
+    await youtube.close_client()
+    await wikipedia.close_client()
 
 
 # ── App instance ──────────────────────────────────────────
 
 app = FastAPI(
     title="CineMatch AI",
-    version="1.0.0",
-    description="Motor de Recomendación Cinematográfica Conversacional",
+    version="2.0.0",
+    description="Motor de Recomendación Cinematográfica Conversacional — con LangChain streaming",
     lifespan=lifespan,
 )
 
@@ -90,7 +103,7 @@ app.add_middleware(
 )
 
 
-# ── Logging middleware (T-504) ────────────────────────────
+# ── Logging middleware ────────────────────────────────────
 
 
 @app.middleware("http")
@@ -114,7 +127,15 @@ async def log_requests(request: Request, call_next):
 @app.get("/api/health")
 async def health():
     """Health check — verifies vLLM and TMDB connectivity."""
-    status = {"status": "ok", "vllm": "unknown", "tmdb": "unknown"}
+    status = {
+        "status": "ok",
+        "vllm": "unknown",
+        "tmdb": "unknown",
+        "streaming": "langchain",
+        "omdb": "configured" if settings.omdb_api_key else "not_configured (optional)",
+        "youtube": "configured" if settings.youtube_api_key else "using_tmdb_videos (free)",
+        "wikipedia": "available (no key needed)",
+    }
     try:
         vllm_info = await clients.check_vllm_health()
         status["vllm"] = "ok"
@@ -134,14 +155,13 @@ async def health():
     return status
 
 
-# ── Main recommendation endpoint (T-501) ─────────────────
+# ── Main recommendation endpoint ──────────────────────────
 
 
 @app.post("/api/recommend", response_model=RecommendResponse)
 async def recommend(body: RecommendRequest):
     """
-    Core recommendation endpoint.
-
+    Core recommendation endpoint (non-streaming).
     Accepts a natural-language query and returns justified movie
     recommendations with a narrative explanation.
     """
@@ -202,7 +222,7 @@ async def recommend(body: RecommendRequest):
     return response
 
 
-# ── Streaming SSE endpoint (T-502) ───────────────────────
+# ── Streaming SSE endpoint (real LangChain streaming) ─────
 
 
 @app.post("/api/recommend/stream")
@@ -210,7 +230,8 @@ async def recommend_stream(body: RecommendRequest):
     """
     Streaming recommendation endpoint (Server-Sent Events).
 
-    Sends structured data first, then streams the narrative text.
+    Uses REAL token streaming from the LLM via LangChain's astream().
+    Phases 1-4 send structured data, Phase 5 streams narrative tokens live.
     """
     if not body.query.strip():
         raise HTTPException(status_code=422, detail="La query no puede estar vacía")
@@ -221,37 +242,38 @@ async def recommend_stream(body: RecommendRequest):
     from app.agents.nlp_extractor import extract_entities
     from app.agents.query_builder import query_tmdb
     from app.agents.reranker import (
-        generate_narrative_stream,
         rerank_films,
         select_top_n,
+        stream_narrative,
     )
     from app.agents.profile_recommender import build_narrative_context as _build_ctx
 
     async def event_generator() -> AsyncIterator[dict]:
         tmdb_lang = f"{body.language}-{body.language.upper()}" if len(body.language) == 2 else body.language
 
-        # Phase 1: NLP
+        # Phase 1: NLP extraction
         yield {"event": "status", "data": json.dumps({"phase": "extracting"})}
         entities = await extract_entities(body.query)
 
-        # Phase 2: Query
+        # Phase 2: TMDB query
         yield {"event": "status", "data": json.dumps({"phase": "searching"})}
         raw = await query_tmdb(entities, language=tmdb_lang, min_year=body.filters.min_year, min_rating=body.filters.min_rating)
 
         if not raw:
-            yield {"event": "done", "data": json.dumps({"narrative": "No encontré películas. Intenta con otra descripción.", "recommendations": []})}
+            yield {"event": "token", "data": "No encontré películas. Intenta con otra descripción."}
+            yield {"event": "done", "data": json.dumps({"session_id": session.session_id})}
             return
 
-        # Phase 3: Enrich
+        # Phase 3: Enrichment
         yield {"event": "status", "data": json.dumps({"phase": "enriching"})}
         enriched = await enrich_movies(raw, language=tmdb_lang)
 
-        # Phase 4: Re-rank
+        # Phase 4: Re-ranking
         yield {"event": "status", "data": json.dumps({"phase": "ranking"})}
         ranked = await rerank_films(body.query, enriched)
         selected = select_top_n(ranked, enriched, n=body.max_results)
 
-        # Send film data
+        # Emit recommendation data
         rank_map = {r.tmdb_id: r for r in ranked}
         recs = [
             {
@@ -263,28 +285,55 @@ async def recommend_stream(body: RecommendRequest):
                 "reason": rank_map[f.tmdb_id].reason if f.tmdb_id in rank_map else "",
                 "genres": f.genres,
                 "keywords": f.keywords[:8],
+                # Extended enrichment
+                "trailer_url": f.trailer_url,
+                "trailer_embed_url": f.trailer_embed_url,
+                "trailer_thumbnail": f.trailer_thumbnail,
+                "imdb_rating": f.imdb_rating,
+                "rotten_tomatoes": f.rotten_tomatoes,
+                "metacritic": f.metacritic,
+                "awards": f.awards,
+                "director": f.director,
+                "actors": f.actors,
+                "trivia": f.trivia,
+                "wikipedia_url": f.wikipedia_url,
             }
             for f in selected
         ]
         yield {"event": "recommendations", "data": json.dumps(recs, ensure_ascii=False)}
 
-        # Phase 5: Stream narrative
+        # Phase 5: REAL streaming narrative via LangChain
         yield {"event": "status", "data": json.dumps({"phase": "narrating"})}
-        full_narrative = ""
-        _profile_ctx = _build_ctx(session.session_id)
-        async for chunk in generate_narrative_stream(body.query, selected, ranked, profile_context=_profile_ctx):
-            cleaned = clean_stream_chunk(chunk)
-            full_narrative += cleaned
-            yield {"event": "token", "data": cleaned}
+        profile_ctx = _build_ctx(session.session_id)
 
-        # Post-process full narrative
-        full_narrative = clean_narrative(full_narrative)
+        full_narrative_parts: list[str] = []
 
-        # If text is garbled, attempt LLM rewrite and send corrected version
-        fixed_narrative = await fix_text_quality(full_narrative)
-        if fixed_narrative != full_narrative:
-            yield {"event": "narrative_replace", "data": fixed_narrative}
-            full_narrative = fixed_narrative
+        try:
+            async for token in stream_narrative(
+                body.query, selected, ranked, profile_context=profile_ctx,
+            ):
+                if token:
+                    full_narrative_parts.append(token)
+                    yield {"event": "token", "data": token}
+        except Exception as stream_err:
+            logger.error("Streaming failed, falling back to non-streaming: %s", stream_err)
+            # Fallback: generate complete narrative non-streaming
+            from app.agents.reranker import generate_narrative
+            raw_narrative = await generate_narrative(
+                body.query, selected, ranked, profile_context=profile_ctx,
+            )
+            full_narrative = clean_narrative(raw_narrative)
+            full_narrative = await fix_text_quality(full_narrative)
+
+            # Emit word-by-word as fallback
+            words = full_narrative.split(" ")
+            for i, word in enumerate(words):
+                tok = word if i == 0 else " " + word
+                full_narrative_parts.append(tok)
+                yield {"event": "token", "data": tok}
+                await asyncio.sleep(0.02)
+
+        full_narrative = "".join(full_narrative_parts)
 
         yield {"event": "done", "data": json.dumps({"session_id": session.session_id})}
 
@@ -321,7 +370,7 @@ async def recommend_stream(body: RecommendRequest):
     return EventSourceResponse(event_generator())
 
 
-# ── Session endpoints (T-503) ────────────────────────────
+# ── Session endpoints ─────────────────────────────────────
 
 
 @app.get("/api/session/{session_id}")
@@ -380,20 +429,16 @@ async def get_user_profile(session_id: str):
     }
 
 
-# ── Graph data endpoint for D3.js ────────────────────────
+# ── Graph data endpoint ──────────────────────────────────
 
 
 @app.get("/api/graph/{session_id}")
 async def get_graph_data(session_id: str):
-    """
-    Return graph data (nodes + links) for D3.js force-directed layout.
-    Includes movies, genres, keywords, moods, and user archetype tags.
-    """
+    """Return graph data (nodes + links) for D3.js force-directed layout."""
     ctx = get_session(session_id)
     if not ctx:
         return {"nodes": [], "links": [], "profile": None, "stats": {}}
 
-    # Build recommendation list with genres/keywords for graph
     all_recs: List[Dict[str, Any]] = []
     for rec in ctx.last_recommendations:
         all_recs.append({
@@ -407,25 +452,114 @@ async def get_graph_data(session_id: str):
             "keywords": [],
         })
 
-    # Try to get enriched data from the graph endpoint body
     graph = build_movie_graph(session_id, all_recs)
     return graph
 
 
 @app.post("/api/graph/{session_id}")
 async def post_graph_data(session_id: str, body: dict = {}):
-    """
-    Build graph data with enriched movie information.
-    Accepts movie data with genres and keywords in the request body.
-    """
+    """Build graph data with enriched movie information."""
     movies = body.get("movies", [])
     graph = build_movie_graph(session_id, movies)
     return graph
 
 
-# ── Serve frontend (T-505) ───────────────────────────────
-# In production, Next.js is served by its own container.
-# This fallback serves a redirect to the frontend.
+# ── Trailer endpoint ──────────────────────────────────────
+
+
+@app.get("/api/trailer/{tmdb_id}")
+async def get_trailer(tmdb_id: int):
+    """Get YouTube trailer for a movie (via TMDB videos API, free)."""
+    from app.clients.youtube import get_trailer_from_tmdb, get_trailer
+
+    # First try TMDB (free, no API key needed)
+    result = await get_trailer_from_tmdb(tmdb_id)
+    if result:
+        return result
+
+    # Fallback to YouTube API or search URL
+    from app.clients.tmdb import get_movie_details
+    try:
+        details = await get_movie_details(tmdb_id, language="es-ES")
+        title = details.get("title", "")
+        year_str = details.get("release_date", "")[:4]
+        year = int(year_str) if year_str else 2024
+        result = await get_trailer(title, year)
+        return result
+    except Exception:
+        return {"youtube_url": None, "error": "Trailer not found"}
+
+
+# ── Watchlist endpoints ───────────────────────────────────
+
+_watchlists: Dict[str, List[Dict[str, Any]]] = {}
+
+
+@app.get("/api/watchlist/{session_id}")
+async def get_watchlist(session_id: str):
+    """Get the user's watchlist for a session."""
+    return {"session_id": session_id, "movies": _watchlists.get(session_id, [])}
+
+
+@app.post("/api/watchlist/{session_id}")
+async def add_to_watchlist(session_id: str, body: dict):
+    """Add a movie to the watchlist."""
+    if session_id not in _watchlists:
+        _watchlists[session_id] = []
+
+    movie = body.get("movie", {})
+    if not movie.get("tmdb_id"):
+        raise HTTPException(status_code=422, detail="movie.tmdb_id required")
+
+    # Avoid duplicates
+    existing_ids = {m["tmdb_id"] for m in _watchlists[session_id]}
+    if movie["tmdb_id"] not in existing_ids:
+        _watchlists[session_id].append(movie)
+
+    return {"status": "added", "total": len(_watchlists[session_id])}
+
+
+@app.delete("/api/watchlist/{session_id}/{tmdb_id}")
+async def remove_from_watchlist(session_id: str, tmdb_id: int):
+    """Remove a movie from the watchlist."""
+    if session_id in _watchlists:
+        _watchlists[session_id] = [m for m in _watchlists[session_id] if m.get("tmdb_id") != tmdb_id]
+    return {"status": "removed"}
+
+
+# ── Export conversation endpoint ──────────────────────────
+
+
+@app.get("/api/export/{session_id}")
+async def export_conversation(session_id: str, format: str = "json"):
+    """Export conversation history as JSON or Markdown."""
+    ctx = get_session(session_id)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    if format == "markdown":
+        md = f"# CineMatch AI — Conversación\n\n"
+        md += f"**Sesión**: {session_id}\n\n---\n\n"
+        for turn in ctx.turns:
+            role_label = "👤 Usuario" if turn.role == "user" else "🎬 CineMatch"
+            md += f"### {role_label}\n\n{turn.content}\n\n---\n\n"
+        if ctx.last_recommendations:
+            md += "## Últimas recomendaciones\n\n"
+            for rec in ctx.last_recommendations:
+                md += f"- **{rec.title}** ({rec.year}) — {rec.score}/10\n"
+                md += f"  _{rec.reason}_\n\n"
+        return {"format": "markdown", "content": md}
+
+    return {
+        "format": "json",
+        "session_id": session_id,
+        "turns": [{"role": t.role, "content": t.content} for t in ctx.turns],
+        "recommendations": [r.model_dump() for r in ctx.last_recommendations],
+    }
+
+
+# ── Root redirect ─────────────────────────────────────────
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -439,8 +573,8 @@ justify-content:center;align-items:center;height:100vh;margin:0}
 .card{text-align:center;padding:2rem;border-radius:1rem;background:#1e293b}
 a{color:#60a5fa;text-decoration:none}h1{color:#f59e0b}</style></head>
 <body><div class="card">
-<h1>🎬 CineMatch AI</h1>
-<p>Motor de Recomendación Cinematográfica</p>
+<h1>🎬 CineMatch AI v2</h1>
+<p>Motor de Recomendación Cinematográfica — LangChain Streaming</p>
 <p><a href="/docs">📖 API Docs</a> · <a href="http://localhost:3000">🖥 Frontend</a></p>
 </div></body></html>"""
     )

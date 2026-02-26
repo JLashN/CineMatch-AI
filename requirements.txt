@@ -17,6 +17,10 @@ python-dotenv>=1.0
 # SSE streaming
 sse-starlette>=1.6,<2.0
 
+# LangChain (LLM orchestration + real streaming)
+langchain>=0.3,<0.4
+langchain-openai>=0.3,<0.4
+
 # Testing
 pytest>=7.0
 pytest-asyncio>=0.21

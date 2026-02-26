@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import dynamic from 'next/dynamic';
 import type { ChatMessage, RecommendationItem, SSEPhase, GraphData, UserProfile } from '@/types';
-import { streamRecommendationSSE, fetchGraphData, fetchProfile } from '@/lib/api';
+import { streamRecommendationSSE, fetchGraphData, fetchProfile, addToWatchlist as apiAddToWatchlist, removeFromWatchlist as apiRemoveFromWatchlist, exportConversation } from '@/lib/api';
 import MovieCard from '@/components/MovieCard';
 import PhaseIndicator from '@/components/PhaseIndicator';
 import ProfileSidebar from '@/components/ProfileSidebar';
@@ -24,6 +24,12 @@ export default function Home() {
   const [allRecommendations, setAllRecommendations] = useState<RecommendationItem[]>([]);
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [totalMovies, setTotalMovies] = useState(0);
+
+  // New states: watchlist, export, filters
+  const [watchlist, setWatchlist] = useState<RecommendationItem[]>([]);
+  const [showWatchlist, setShowWatchlist] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -59,6 +65,45 @@ export default function Home() {
       console.error('Failed to load profile:', err);
     }
   }, []);
+
+  // Watchlist handlers
+  const handleToggleWatchlist = useCallback(async (movie: RecommendationItem) => {
+    const inList = watchlist.some((m) => m.tmdb_id === movie.tmdb_id);
+    if (inList) {
+      setWatchlist((prev) => prev.filter((m) => m.tmdb_id !== movie.tmdb_id));
+      if (sessionId) {
+        try { await apiRemoveFromWatchlist(sessionId, movie.tmdb_id); } catch {}
+      }
+    } else {
+      setWatchlist((prev) => [...prev, movie]);
+      if (sessionId) {
+        try { await apiAddToWatchlist(sessionId, movie); } catch {}
+      }
+    }
+  }, [watchlist, sessionId]);
+
+  // Export handler
+  const handleExport = useCallback(async (format: 'json' | 'markdown') => {
+    if (!sessionId) return;
+    setExportLoading(true);
+    try {
+      const data = await exportConversation(sessionId, format);
+      const blob = new Blob(
+        [format === 'json' ? JSON.stringify(data, null, 2) : (data.content || JSON.stringify(data))],
+        { type: format === 'json' ? 'application/json' : 'text/markdown' }
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cinematch-${sessionId.slice(0, 8)}.${format === 'json' ? 'json' : 'md'}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExportLoading(false);
+    }
+  }, [sessionId]);
 
   // Send message
   const handleSend = async () => {
@@ -171,6 +216,50 @@ export default function Home() {
             </div>
           )}
 
+          {/* Watchlist toggle */}
+          <button
+            onClick={() => setShowWatchlist(!showWatchlist)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-300 ${
+              showWatchlist
+                ? 'bg-gradient-to-r from-green-500 to-emerald-400 text-cinema-bg shadow-lg shadow-green-500/20'
+                : 'glass-card text-cinema-textMuted hover:text-white hover:border-green-400/30'
+            }`}
+          >
+            <span className="text-sm">🔖</span>
+            {watchlist.length > 0 && (
+              <span className="text-xs">{watchlist.length}</span>
+            )}
+            <span className="hidden sm:inline">Watchlist</span>
+          </button>
+
+          {/* Export dropdown */}
+          {sessionId && (
+            <div className="relative group/export">
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium glass-card text-cinema-textMuted hover:text-white transition-all duration-300"
+                disabled={exportLoading}
+              >
+                {exportLoading ? (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <span className="text-sm">📥</span>
+                )}
+                <span className="hidden sm:inline">Exportar</span>
+              </button>
+              <div className="absolute right-0 top-full mt-1 hidden group-hover/export:flex flex-col bg-cinema-card border border-white/10 rounded-xl shadow-xl overflow-hidden z-30 min-w-[140px]">
+                <button onClick={() => handleExport('markdown')} className="px-4 py-2 text-xs text-cinema-textMuted hover:text-white hover:bg-white/5 text-left transition-colors">
+                  📝 Markdown
+                </button>
+                <button onClick={() => handleExport('json')} className="px-4 py-2 text-xs text-cinema-textMuted hover:text-white hover:bg-white/5 text-left transition-colors">
+                  📋 JSON
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Graph toggle */}
           <button
             onClick={() => setShowGraph(!showGraph)}
@@ -274,7 +363,13 @@ export default function Home() {
                     {msg.recommendations && msg.recommendations.length > 0 && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
                         {msg.recommendations.map((movie, idx) => (
-                          <MovieCard key={movie.tmdb_id} movie={movie} index={idx} />
+                          <MovieCard
+                            key={movie.tmdb_id}
+                            movie={movie}
+                            index={idx}
+                            onAddToWatchlist={handleToggleWatchlist}
+                            isInWatchlist={watchlist.some((m) => m.tmdb_id === movie.tmdb_id)}
+                          />
                         ))}
                       </div>
                     )}
@@ -422,6 +517,67 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* ── Watchlist Drawer ────────────────────────────── */}
+      {showWatchlist && (
+        <div className="fixed inset-0 z-40 flex justify-end animate-fade-in" onClick={() => setShowWatchlist(false)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm bg-cinema-bg border-l border-white/10 h-full overflow-y-auto shadow-2xl animate-slide-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 glass-panel border-b border-white/5 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-white text-lg">🔖 Mi Watchlist</h2>
+                <p className="text-xs text-cinema-textMuted">{watchlist.length} película{watchlist.length !== 1 ? 's' : ''}</p>
+              </div>
+              <button onClick={() => setShowWatchlist(false)} className="text-cinema-textMuted hover:text-white transition-colors p-1">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {watchlist.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-[60vh] text-cinema-textMuted px-8 text-center">
+                <span className="text-5xl mb-4 opacity-30">🔖</span>
+                <p className="text-sm font-medium mb-1">Tu watchlist está vacía</p>
+                <p className="text-xs text-cinema-textMuted/60">Guarda películas con el botón &quot;Guardar&quot; en cada tarjeta</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-3">
+                {watchlist.map((movie) => (
+                  <div key={movie.tmdb_id} className="flex gap-3 items-start p-3 rounded-xl bg-white/5 border border-white/5 group/item">
+                    {movie.poster_url ? (
+                      <img src={movie.poster_url} alt={movie.title} className="w-12 h-18 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-12 h-18 rounded-lg bg-cinema-card flex items-center justify-center flex-shrink-0">
+                        <span className="text-lg opacity-30">🎬</span>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-medium text-white truncate">{movie.title}</h4>
+                      <p className="text-xs text-cinema-textMuted">{movie.year} · ⭐ {movie.score.toFixed(1)}</p>
+                      {movie.genres && (
+                        <p className="text-[10px] text-cinema-textMuted/60 truncate mt-0.5">{movie.genres.slice(0, 3).join(', ')}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleToggleWatchlist(movie)}
+                      className="text-cinema-textMuted/40 hover:text-red-400 transition-colors opacity-0 group-hover/item:opacity-100 p-1"
+                      title="Quitar"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Profile sidebar */}
       <ProfileSidebar profile={profile} isOpen={showProfile} onClose={() => setShowProfile(false)} />

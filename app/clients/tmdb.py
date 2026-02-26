@@ -1,5 +1,12 @@
 """
-CineMatch AI — TMDB Client (Module 3 / T-300)
+CineMatch AI — TMDB Client (Module 3)
+
+Design patterns:
+  - Repository: abstracts TMDB API behind a clean interface
+  - Singleton: shared httpx client with connection pooling
+  - Cache Aside: in-memory TTL cache to avoid redundant API calls
+  - Retry with Backoff: exponential backoff on rate limits / failures
+  - Semaphore: rate-limited concurrent requests (max 8)
 
 Async HTTP client with retry, rate-limiting and backoff for TMDB API v3.
 """

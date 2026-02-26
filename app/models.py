@@ -1,6 +1,11 @@
 """
 CineMatch AI — Pydantic Models
 
+Design patterns:
+  - Value Object: immutable data transfer objects (DTOs)
+  - Domain Model: each model represents a domain concept
+  - Contract: request/response models define the API contract
+
 Shared data models used across the entire pipeline.
 """
 
@@ -49,6 +54,20 @@ class EnrichedFilm(BaseModel):
     poster_url: Optional[str] = None
     relevance_score: float = 0.0
 
+    # ── Extended enrichment (new APIs) ────────────────────
+    trailer_url: Optional[str] = None
+    trailer_embed_url: Optional[str] = None
+    trailer_thumbnail: Optional[str] = None
+    imdb_id: Optional[str] = None
+    imdb_rating: Optional[float] = None
+    rotten_tomatoes: Optional[int] = None    # percentage
+    metacritic: Optional[int] = None
+    awards: Optional[str] = None
+    director: Optional[str] = None
+    actors: Optional[str] = None
+    trivia: List[str] = Field(default_factory=list)
+    wikipedia_url: Optional[str] = None
+
 
 # ── Module 4: Ranked Result ──────────────────────────────
 
@@ -86,6 +105,19 @@ class RecommendationItem(BaseModel):
     reason: str
     genres: List[str] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
+
+    # ── Extended data ─────────────────────────────────────
+    trailer_url: Optional[str] = None
+    trailer_embed_url: Optional[str] = None
+    trailer_thumbnail: Optional[str] = None
+    imdb_rating: Optional[float] = None
+    rotten_tomatoes: Optional[int] = None
+    metacritic: Optional[int] = None
+    awards: Optional[str] = None
+    director: Optional[str] = None
+    actors: Optional[str] = None
+    trivia: List[str] = Field(default_factory=list)
+    wikipedia_url: Optional[str] = None
 
 
 class RecommendResponse(BaseModel):

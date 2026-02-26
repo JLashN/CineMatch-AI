@@ -1,6 +1,11 @@
 """
 CineMatch AI — Profile-Aware Recommendation Agent
 
+Design patterns:
+  - Decorator: enriches entities and rankings with profile data
+  - Strategy: profile-based bias vs neutral recommendations
+  - Builder: constructs narrative context from profile data
+
 Uses the accumulated user profile to bias and personalize recommendations.
 Acts as a pre-filter and post-filter around the main pipeline.
 """

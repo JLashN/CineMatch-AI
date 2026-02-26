@@ -1,8 +1,13 @@
 """
 CineMatch AI — Sentiment Analysis Agent
 
+Design patterns:
+  - Strategy: regex-based (fast) vs LLM-based (deep) analysis
+  - Chain of Responsibility: scoring through multiple pattern layers
+  - Observer: emotional signals detection
+
 Analyzes user messages to detect emotional intent and satisfaction level.
-Uses both regex patterns and an optional LLM call for nuanced understanding.
+Uses regex patterns and an optional LLM call for nuanced understanding.
 """
 
 from __future__ import annotations

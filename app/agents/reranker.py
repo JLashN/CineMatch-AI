@@ -1,8 +1,10 @@
 """
-CineMatch AI — Re-ranker & Narrative Generator (Module 4 / T-400 – T-405)
+CineMatch AI — Re-ranker & Narrative Generator (Module 4)
 
-Uses the LLM to score candidate movies and generate the final
-conversational response.
+Design patterns:
+  - Strategy: scoring strategy (LLM-based vs. fallback)
+  - Template Method: narrative prompt construction
+  - Iterator: async generator for streaming narrative
 """
 
 from __future__ import annotations
@@ -12,12 +14,12 @@ import logging
 import re
 from typing import AsyncIterator, Dict, List, Set
 
-from app.clients import chat_completion, chat_completion_stream
+from app.clients import chat_completion, stream_chat
 from app.models import EnrichedFilm, RankedFilm
 
 logger = logging.getLogger(__name__)
 
-# ── Re-ranking prompt (T-400) ─────────────────────────────
+# ── Re-ranking prompt ─────────────────────────────────────
 
 _RERANK_SYSTEM = """\
 Eres un crítico de cine experto. Evalúa cada película de la lista según lo bien que se ajusta a la petición del usuario.
@@ -83,7 +85,7 @@ async def rerank_films(
         items = json.loads(cleaned)
     except json.JSONDecodeError:
         logger.error("Re-ranker returned invalid JSON: %s", raw[:500])
-        # Fallback: rank by TMDB vote_average
+        # Fallback strategy: rank by TMDB vote_average
         return [
             RankedFilm(tmdb_id=f.tmdb_id, score=f.vote_average, reason="Puntuación de TMDB (fallback)")
             for f in films
@@ -104,7 +106,7 @@ async def rerank_films(
     return ranked
 
 
-# ── Top-N selection with diversification (T-402) ─────────
+# ── Top-N selection with diversification ──────────────────
 
 
 def select_top_n(
@@ -126,11 +128,9 @@ def select_top_n(
         film = film_map.get(r.tmdb_id)
         if not film:
             continue
-        # Basic dedup: skip if title root is very similar
         title_root = film.title.split(":")[0].strip().lower()
         if title_root in seen_titles:
             continue
-        # Apply score from ranker
         film.relevance_score = r.score
         selected.append(film)
         seen_titles.add(title_root)
@@ -138,7 +138,7 @@ def select_top_n(
     return selected
 
 
-# ── Narrative generation (T-403 / T-404) ─────────────────
+# ── Narrative system prompt (Template Method) ─────────────
 
 _NARRATIVE_SYSTEM = """\
 Eres CineMatch AI, un asistente cinéfilo apasionado y culto.
@@ -208,6 +208,9 @@ def _build_narrative_user_prompt(
     )
 
 
+# ── Non-streaming narrative (fallback) ────────────────────
+
+
 async def generate_narrative(
     user_query: str,
     films: List[EnrichedFilm],
@@ -222,30 +225,37 @@ async def generate_narrative(
 
     return await chat_completion(
         messages,
-        temperature=0.7,
+        temperature=0.3,
         max_tokens=1500,
         presence_penalty=0.4,
         frequency_penalty=0.3,
     )
 
 
-async def generate_narrative_stream(
+# ── Real streaming narrative (LangChain astream) ─────────
+
+
+async def stream_narrative(
     user_query: str,
     films: List[EnrichedFilm],
     ranked: List[RankedFilm],
     profile_context: str = "",
 ) -> AsyncIterator[str]:
-    """Generate the narrative response as a stream of text chunks."""
+    """
+    Stream the narrative response token-by-token from the LLM.
+    Uses LangChain's astream() for real token streaming via vLLM.
+    Yields individual token strings as they arrive.
+    """
     messages = [
         {"role": "system", "content": _get_narrative_system(profile_context)},
         {"role": "user", "content": _build_narrative_user_prompt(user_query, films, ranked)},
     ]
 
-    async for chunk in chat_completion_stream(
+    async for token in stream_chat(
         messages,
-        temperature=0.7,
+        temperature=0.3,
         max_tokens=1500,
         presence_penalty=0.4,
         frequency_penalty=0.3,
     ):
-        yield chunk
+        yield token

@@ -34,6 +34,7 @@ module.exports = {
         'slide-in-right': 'slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         'float': 'float 6s ease-in-out infinite',
         'glow': 'glow 3s ease-in-out infinite alternate',
+        'slide-left': 'slideLeft 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',
       },
       keyframes: {
         fadeIn: {
@@ -59,6 +60,10 @@ module.exports = {
         glow: {
           '0%': { boxShadow: '0 0 20px rgba(245, 158, 11, 0.1)' },
           '100%': { boxShadow: '0 0 40px rgba(245, 158, 11, 0.2)' },
+        },
+        slideLeft: {
+          '0%': { opacity: '0', transform: 'translateX(100%)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
         },
       },
     },
