@@ -137,7 +137,7 @@ El sistema:
 | **HTTP Client** | httpx (async, SSL bypass) | 0.24+ |
 | **Validación** | Pydantic v2 + pydantic-settings | 2.0+ |
 | **Streaming** | sse-starlette (Server-Sent Events) | 1.6+ |
-| **Datos de Cine** | TMDB API v3 | Rate-limited, cached |
+| **Datos de Cine** | TMDB API v3, OMDb, YouTube, Wikipedia | Rate-limited, cached, free |
 | **Frontend** | Next.js / React / TypeScript | 14.2 / 18.3 / 5.5 |
 | **Visualización** | D3.js (force-directed graph) | 7.9 |
 | **Markdown** | react-markdown | 9.0 |
@@ -289,6 +289,7 @@ El backend opera con un sistema de **7 agentes especializados**, cada uno con un
 | 🏆 **Re-ranker** | `reranker.py` | LLM | Puntúa películas y genera la narrativa conversacional |
 | 💬 **Sentiment** | `sentiment.py` | Regex + LLM | Analiza sentimiento, intención y señales emocionales |
 | 🧬 **Profile Recommender** | `profile_recommender.py` | Algorítmico | Personaliza query y ranking usando el perfil del usuario |
+| 🎥 **OMDb/YouTube/Wikipedia** | `clients/omdb.py`, `clients/youtube.py`, `clients/wikipedia.py` | API | Ratings, trailers, trivia, Wikipedia |
 | 🔧 **Text Quality** | `text_quality.py` | Regex + LLM | Detecta y corrige texto garbled (espacios faltantes/extra) |
 
 ### Flujo de Datos entre Agentes
@@ -330,7 +331,7 @@ El frontend es una aplicación **Next.js 14** (App Router) con un diseño **glas
 | Componente | Archivo | Descripción |
 |-----------|---------|-------------|
 | 🏠 **Chat Page** | `page.tsx` | Página principal con input, mensajes, sugerencias y controles |
-| 🎬 **MovieCard** | `MovieCard.tsx` | Tarjeta de película con poster, score badge (gradiente por nota), hover shine |
+| 🎬 **MovieCard** | `MovieCard.tsx` | Tarjeta de película con poster, score badge (gradiente por nota), hover shine, ratings, trailer, trivia, watchlist, compartir |
 | 🗺️ **ForceGraph** | `ForceGraph.tsx` | Grafo D3.js force-directed con zoom, drag, tooltips, glow nodes |
 | 🧬 **ProfileSidebar** | `ProfileSidebar.tsx` | Panel lateral con arquetipos, stats, barras de afinidad con gradiente |
 | ⏳ **PhaseIndicator** | `PhaseIndicator.tsx` | Barra de progreso de las fases del pipeline con dots pulsantes |
@@ -368,7 +369,14 @@ Features del grafo:
 
 ### Score Badge System
 
-Las tarjetas de película muestran un badge de puntuación con **color dinámico**:
+Las tarjetas de película muestran un badge de puntuación con **color dinámico** y ahora también:
+
+- **Ratings multi-plataforma**: IMDb, Rotten Tomatoes, Metacritic
+- **Botón de trailer**: Abre modal o YouTube
+- **Trivia y Wikipedia**: Datos curiosos y enlace
+- **Premios**: Badge si la película tiene premios
+- **Botón Watchlist**: Guardar/quitar película
+- **Botón Compartir**: Copia o comparte la recomendación
 
 | Rango | Color | Significado |
 |-------|-------|-------------|
@@ -525,6 +533,20 @@ Fases de status: `extracting` → `searching` → `enriching` → `ranking` → 
 
 ---
 
+#### `GET /api/trailer/{tmdb_id}` — Trailer de la película
+
+Devuelve la URL del trailer (YouTube/TMDB) y datos de embed.
+
+#### `GET /api/watchlist/{session_id}` — Obtener watchlist
+#### `POST /api/watchlist/{session_id}` — Añadir película a watchlist
+#### `DELETE /api/watchlist/{session_id}/{tmdb_id}` — Quitar película de watchlist
+
+#### `GET /api/export/{session_id}?format=json|markdown` — Exportar conversación y recomendaciones
+
+<br/>
+
+---
+
 #### Otros Endpoints
 
 | Method | Path | Descripción |
@@ -666,6 +688,8 @@ Todas las variables se cargan desde `.env` usando pydantic-settings:
 | `APP_PORT` | `8000` | Puerto del servidor |
 | `LOG_LEVEL` | `info` | Nivel de log (debug, info, warning, error) |
 | `REDIS_URL` | `null` | URL de Redis (opcional, para cache distribuido) |
+| `OMDB_API_KEY` | *(opcional)* | API key de OMDb para ratings (IMDb, Rotten, Metacritic) |
+| `YOUTUBE_API_KEY` | *(opcional)* | API key de YouTube (solo si se desea usar búsqueda avanzada de trailers) |
 
 ### Ejemplo `.env`
 
@@ -707,7 +731,10 @@ CineMatch-AI/
 │   │
 │   ├── 🔌 clients/                 # Clientes HTTP async
 │   │   ├── __init__.py             # vLLM client (chat_completion, streaming)
-│   │   └── tmdb.py                 # TMDB client (cache, rate-limit, retry)
+│   │   ├── tmdb.py                 # TMDB client (cache, rate-limit, retry)
+│   │   ├── omdb.py                 # OMDb client (ratings, trailers, trivia)
+│   │   ├── youtube.py              # YouTube client (búsqueda de trailers)
+│   │   └── wikipedia.py            # Wikipedia client (trivia, datos curiosos)
 │   │
 │   └── 🤖 agents/                  # Agentes del pipeline
 │       ├── __init__.py
@@ -817,6 +844,30 @@ El cliente TMDB (`clients/tmdb.py`) implementa:
 - **Retry con backoff**: Hasta 3 reintentos con backoff exponencial
 - **Endpoints**: `discover/movie`, `search/movie`, `search/keyword`, `movie/{id}`, `movie/{id}/keywords`, `movie/{id}/reviews`, `genre/movie/list`
 
+### OMDb Client
+
+El cliente OMDb (`clients/omdb.py`) permite obtener ratings y datos adicionales:
+
+- **API Key**: Requiere una API key de OMDb (opcional)
+- **Endpoints**: `http://www.omdbapi.com/?apikey=YOUR_API_KEY&t={title}`
+- **Datos**: ratings de IMDb, Rotten Tomatoes, Metacritic, y información adicional de la película
+
+### YouTube Client
+
+El cliente YouTube (`clients/youtube.py`) permite buscar trailers:
+
+- **API Key**: Requiere una API key de YouTube (opcional)
+- **Búsqueda**: `youtube.search.list(q='{title} trailer', ...)`
+- **Datos**: URL del trailer, título, descripción, canal
+
+### Wikipedia Client
+
+El cliente Wikipedia (`clients/wikipedia.py`) permite obtener trivia y datos curiosos:
+
+- **Búsqueda**: `wikipedia.search('{title}')`
+- **Resumen**: `wikipedia.summary('{title}', ...)`
+- **Datos**: Extracto de la sinopsis, enlace a Wikipedia
+
 ### Gestión de Sesiones
 
 - **In-memory store**: Dict de `session_id → SessionContext`
@@ -855,16 +906,16 @@ El pipeline de limpieza de texto maneja dos problemas opuestos:
 
 ## 🗺️ Roadmap
 
-- [ ] **Redis cache** — Cache distribuido para deployments multi-instancia
-- [ ] **Persistencia** — PostgreSQL para sesiones y perfiles permanentes
-- [ ] **Watchlist** — Guardar películas para ver después
+- [x] **Watchlist** — Guardar películas para ver después
+- [x] **Trailers** — Integración de YouTube/TMDB para mostrar trailers
+- [x] **Trivia/curiosidades** — Wikipedia y facts automáticos
+- [x] **Exportar conversación** — Descargar recomendaciones y chat en Markdown/JSON
 - [ ] **Ratings** — Permitir al usuario puntuar recomendaciones para mejorar el perfil
 - [ ] **Multi-modelo** — Soporte para múltiples LLMs (Qwen3, Llama, Mistral) con routing inteligente
 - [ ] **Embeddings** — Búsqueda semántica por embeddings de sinopsis
 - [ ] **Streaming de voz** — Integración con Whisper + TTS para interacción por voz
 - [ ] **Modo colectivo** — Recomendaciones para grupos (intersección de perfiles)
 - [ ] **PWA** — Progressive Web App para móvil con notificaciones
-- [ ] **Trailers** — Integración de YouTube API para mostrar trailers
 
 <br/>
 
